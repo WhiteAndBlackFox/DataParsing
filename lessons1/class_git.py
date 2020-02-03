@@ -16,15 +16,17 @@ class gitApi:
     __urls = {
         'list_repos': 'https://api.github.com/users/{}/repos',
         'create_repos': 'https://api.github.com/user/repos',
-        'delete_repos': 'https://api.github.com/repos/{}/{}'
+        'delete_repos': 'https://api.github.com/repos/{}/{}',
+        'auth' : 'https://api.github.com/user'
     }
 
     __toSaveDumps = 'dumps'
     logger = None
     __logging_filename = 'lessons1.log'
+    __isAuth = False
 
     # Parametrs for auth
-    username = None
+    _username = None
     __passwd = None
     __sessions = None
 
@@ -37,22 +39,23 @@ class gitApi:
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
 
-        if username:
-            self.username = username
-        if passwd:
+        if username and passwd:
+            self._username = username
             self.__passwd = passwd
+            self.__check_auth()
         super().__init__()
 
     def __del__(self):
-        self.username = None
+        self._username = None
         self.__passwd = None
 
     def set_auth(self, username, passwd):
-        self.username = username
+        self._username = username
         self.__passwd = passwd
+        self.__check_auth()
 
     def __get_sessions(self):
-        if not self.username or not self.__passwd:
+        if not self._username or not self.__passwd:
             self.logger.error('Не заполнен логин или пароль')
             Exception('Не заполнен логин или пароль')
 
@@ -60,12 +63,25 @@ class gitApi:
 
         try:
             session = requests.Session()
-            session.auth = (self.username, self.__passwd)
+            session.auth = (self._username, self.__passwd)
         except Exception as e:
             self.logger.error(f'Ошибка: {e}')
             print(e)
 
         return session
+
+    def __check_auth(self):
+        session = self.__get_sessions()
+        response = session.get(self.__urls['auth'])
+        if response.ok:
+            self.logger.info(
+                f'Авторизация пользователя {self._username} прошла успешно! Склонировать можно: git clone {json.loads(response.text)}')
+            self.__isAuth = True
+        else:
+            self.logger.error(
+                f'Авторизация пользователя {self._username} не удалась! Ошибка: {json.loads(response.text)["message"]}')
+            self.__isAuth = False
+            print(f'Авторизация пользователя {self._username} не удалась!')
 
     def create_repos(self, name):
         session = self.__get_sessions()
@@ -90,7 +106,7 @@ class gitApi:
     def delete_repos(self, name):
         session = self.__get_sessions()
 
-        urls = self.__urls['delete_repos'].format(self.username, name)
+        urls = self.__urls['delete_repos'].format(self._username, name)
         response = session.delete(urls)
         if response.ok:
             self.logger.info(f'Репозиторий успешно удален! URL: {urls}')
@@ -123,6 +139,7 @@ class gitApi:
             date_now = strftime('%Y%m%d_%H%M%S', gmtime())
             with open(f"{self.__toSaveDumps}/dump_{username}_{date_now}.json", 'w+') as f:
                 json.dump(data['response'], f)
+            print(f"Данные выгружены в {self.__toSaveDumps}/dump_{username}_{date_now}.json")
         else:
             self.logger.error(f"В репозитории пользователя {username} не найдено проектов")
             print(f"В репозитории пользователя {username} не найдено проектов")
@@ -136,7 +153,4 @@ class gitApi:
             print(e)
 
     def isAuth(self):
-        if self.__passwd and self.username:
-            return True
-        else:
-            return False
+        return self.__isAuth
